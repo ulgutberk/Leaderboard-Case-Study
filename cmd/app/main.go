@@ -23,6 +23,7 @@ import (
 	"leaderboard-case-study/internal/handlers"
 	"leaderboard-case-study/internal/repositories"
 	"leaderboard-case-study/internal/services"
+	"leaderboard-case-study/pkg/middleware"
 )
 
 func main() {
@@ -78,7 +79,9 @@ func main() {
 	userHandler.RegisterRoutes(router)
 
 	fmt.Printf("Leaderboard Service running on %s\n", cfg.ServerAddr)
-	log.Fatal(http.ListenAndServe(cfg.ServerAddr, router))
+	rateLimiter := middleware.RateLimiter(redisClient, cfg.RateLimitRequests, cfg.RateLimitWindow)
+	log.Fatal(http.ListenAndServe(cfg.ServerAddr, middleware.RequestLogger(rateLimiter(router))))
+
 }
 
 // mustConnectPostgres retries connecting to Postgres until it succeeds or times out.
