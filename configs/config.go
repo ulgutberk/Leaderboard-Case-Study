@@ -21,7 +21,7 @@ func Load() *Config {
 		ServerAddr:  getEnv("SERVER_ADDR", ":8080"),
 		PostgresURL: getEnv("POSTGRES_URL", "postgres://postgres:postgres@localhost:5432/leaderboard?sslmode=disable"),
 		RedisAddr:   getEnv("REDIS_ADDR", "localhost:6379"),
-		RateLimitRequests: getEnvInt("RATE_LIMIT_REQUESTS", 100),
+		RateLimitRequests: getEnvInt("RATE_LIMIT_REQUESTS", 100), // Rate limit defaults to 100 requests per window
 		RateLimitWindow:   getEnvDuration("RATE_LIMIT_WINDOW", time.Minute),
 	}
 }
