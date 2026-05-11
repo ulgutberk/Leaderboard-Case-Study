@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"time"
 
 	"github.com/go-redis/redis/v8"
 	"github.com/gorilla/mux"
@@ -28,11 +29,8 @@ func main() {
 	// Load configuration from environment variables
 	cfg := configs.Load()
 
-	// Connect to Postgres (board/user metadata persistence)
-	db, err := pgxpool.New(context.Background(), cfg.PostgresURL)
-	if err != nil {
-		log.Fatalf("Failed to connect to Postgres: %v", err)
-	}
+	// Connect to Postgres — retry until ready (container may be up before Postgres accepts connections).
+	db := mustConnectPostgres(cfg.PostgresURL)
 	defer db.Close()
 
 	// Connect to Redis (fast score operations via ZSET)
@@ -53,15 +51,22 @@ func main() {
 	//                        └── UserRepository   (Postgres)
 
 	boardRepo := repositories.NewBoardRepository(db)
-	scoreRepo := repositories.NewScoreRepository(redisClient)
+	scoreRepo := repositories.NewScoreRepository(db, redisClient)
 	userRepo := repositories.NewUserRepository(db)
 
 	boardService := services.NewBoardService(boardRepo)
 	scoreService := services.NewScoreService(scoreRepo)
 	userService := services.NewUserService(userRepo)
 
+	// Rebuild Redis cache from Postgres on startup (crash recovery / cold start).
+	if err := scoreRepo.WarmCache(context.Background()); err != nil {
+		log.Printf("warn: Redis cache warm failed (scores may be missing until next SetScore): %v", err)
+	} else {
+		log.Println("Redis score cache warmed from Postgres")
+	}
+
 	boardHandler := handlers.NewBoardHandler(boardService)
-	scoreHandler := handlers.NewScoreHandler(scoreService)
+	scoreHandler := handlers.NewScoreHandler(scoreService, boardService)
 	userHandler := handlers.NewUserHandler(userService)
 
 	// Register routes
@@ -74,6 +79,29 @@ func main() {
 
 	fmt.Printf("Leaderboard Service running on %s\n", cfg.ServerAddr)
 	log.Fatal(http.ListenAndServe(cfg.ServerAddr, router))
+}
+
+// mustConnectPostgres retries connecting to Postgres until it succeeds or times out.
+// pgxpool.New is lazy (no real connection yet), so we Ping explicitly.
+func mustConnectPostgres(url string) *pgxpool.Pool {
+	const maxAttempts = 20
+	const delay = 3 * time.Second
+
+	for i := 1; i <= maxAttempts; i++ {
+		db, err := pgxpool.New(context.Background(), url)
+		if err == nil {
+			if pingErr := db.Ping(context.Background()); pingErr == nil {
+				log.Printf("Postgres connected (attempt %d)", i)
+				return db
+			} else {
+				db.Close()
+			}
+		}
+		log.Printf("Postgres not ready, retrying in %s (attempt %d/%d)...", delay, i, maxAttempts)
+		time.Sleep(delay)
+	}
+	log.Fatalf("Failed to connect to Postgres after %d attempts", maxAttempts)
+	return nil
 }
 
 func healthHandler(w http.ResponseWriter, r *http.Request) {
