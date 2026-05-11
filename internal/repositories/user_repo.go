@@ -25,12 +25,21 @@ func NewUserRepository(db *pgxpool.Pool) UserRepository {
 
 // CreateUser inserts a new user into Postgres.
 func (r *userRepository) CreateUser(ctx context.Context, user *models.User) error {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx) // no-op if already committed, if any error occurs the transaction will be rolled back.
+
 	query := `
 		INSERT INTO users (id, username, created_at)
 		VALUES ($1, $2, NOW())
 		RETURNING created_at`
-	return r.db.QueryRow(ctx, query, user.ID, user.Username).
-		Scan(&user.CreatedAt)
+	if err := tx.QueryRow(ctx, query, user.ID, user.Username).Scan(&user.CreatedAt); err != nil {
+		return err
+	}
+
+	return tx.Commit(ctx)
 }
 
 // GetUser fetches a user by ID from Postgres.
