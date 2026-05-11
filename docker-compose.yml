@@ -1,23 +1,43 @@
 version: "3.8"
 services:
-  postgres:
+  postgres-primary:
     image: postgres:15
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: leaderboard
+    command: >-
+      postgres
+      -c wal_level=replica
+      -c max_wal_senders=3
+      -c wal_keep_size=64
+      -c hba_file=/etc/postgresql/pg_hba.conf
+      -c wal_log_hints=on
     ports:
       - "5432:5432"
     volumes:
-      - pgdata:/var/lib/postgresql/data
-      # Postgres automatically runs all *.sql files in docker-entrypoint-initdb.d/ on first start
+      - pgdata-primary:/var/lib/postgresql/data
       - ./migrations:/docker-entrypoint-initdb.d
+      - ./postgres/pg_hba.conf:/etc/postgresql/pg_hba.conf:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d leaderboard"]
+      test: ["CMD-SHELL", "pg_isready -h localhost -p 5432"]
       interval: 5s
       timeout: 5s
       retries: 10
-  redis:
+
+  postgres-replica:
+    image: postgres:15
+    environment:
+      PGPASSWORD: replicator_pass
+    command: >-
+      bash -c "rm -rf /var/lib/postgresql/data/* /var/lib/postgresql/data/.[!.]* 2>/dev/null || true; until pg_basebackup -h postgres-primary -D /var/lib/postgresql/data -U replicator -Fp -Xs -P -R --no-password; do sleep 2; done && chown -R postgres:postgres /var/lib/postgresql/data && chmod 700 /var/lib/postgresql/data && exec gosu postgres postgres"
+    volumes:
+      - pgdata-replica:/var/lib/postgresql/data
+    depends_on:
+      postgres-primary:
+        condition: service_healthy
+
+  redis-master:
     image: redis:7
     ports:
       - "6379:6379"
@@ -27,19 +47,76 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
-  leaderboard:
-    build:
-      context: .
-      dockerfile: Dockerfile
+
+  redis-replica:
+    image: redis:7
+    command: redis-server --replicaof redis-master 6379 --appendonly yes
     depends_on:
-      postgres:
+      redis-master:
         condition: service_healthy
-      redis:
+
+  monitor:
+    build: ./monitor
+    depends_on:
+      - leaderboard
+    environment:
+      ALERT_EMAIL_TO: ulgutberk@gmail.com
+      ALERT_EMAIL_FROM: ulgutberk@gmai.com
+    volumes:
+      - ./monitor/msmtprc:/etc/msmtp/msmtprc:ro
+    restart: unless-stopped
+
+  leaderboard:
+    build: .
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+      redis-master:
         condition: service_healthy
     environment:
-      POSTGRES_URL: postgres://postgres:postgres@postgres:5432/leaderboard?sslmode=disable
-      REDIS_ADDR: redis:6379
+      POSTGRES_URL: postgres://postgres:postgres@pgbouncer:5432/leaderboard?sslmode=disable
+      REDIS_ADDR: redis-master:6379
     ports:
       - "8080:8080"
+
+  pgbouncer:
+    image: edoburu/pgbouncer:latest
+    environment:
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_HOST: postgres-primary
+      DB_NAME: leaderboard
+      POOL_MODE: session
+      MAX_CLIENT_CONN: 1000
+    volumes:
+      - ./pgbouncer/pgbouncer.ini:/etc/pgbouncer/pgbouncer.ini:rw
+      - ./pgbouncer/userlist.txt:/etc/pgbouncer/userlist.txt:ro
+    depends_on:
+      postgres-primary:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "pg_isready", "-h", "localhost", "-p", "5432"]
+      interval: 5s
+      retries: 10
+
+  failover-watcher:
+    build: ./failover
+    volumes:
+      - ./pgbouncer/pgbouncer.ini:/etc/pgbouncer/pgbouncer.ini:rw
+      - ./monitor/msmtprc:/etc/msmtp/msmtprc:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      ALERT_EMAIL_TO: ulgutberk@gmail.com
+      ALERT_EMAIL_FROM: ulgutberk@gmail.com
+    depends_on:
+      - pgbouncer
+      - postgres-replica
+    restart: unless-stopped
+
 volumes:
-  pgdata:
+  pgdata-primary:
+  pgdata-replica:
+
+
+
+

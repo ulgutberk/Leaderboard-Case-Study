@@ -7,6 +7,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -72,7 +73,7 @@ func main() {
 
 	// Register routes
 	router := mux.NewRouter()
-	router.HandleFunc("/health", healthHandler).Methods(http.MethodGet)
+	router.HandleFunc("/health", healthHandler(db, redisClient)).Methods(http.MethodGet)
 	router.PathPrefix("/swagger/").Handler(httpSwagger.WrapHandler)
 	boardHandler.RegisterRoutes(router)
 	scoreHandler.RegisterRoutes(router)
@@ -107,7 +108,25 @@ func mustConnectPostgres(url string) *pgxpool.Pool {
 	return nil
 }
 
-func healthHandler(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("ok"))
+func healthHandler(db *pgxpool.Pool, rdb *redis.Client) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		status := map[string]string{
+			"postgres": "ok",
+			"redis":    "ok",
+		}
+		code := http.StatusOK
+
+		if err := db.Ping(r.Context()); err != nil {
+			status["postgres"] = "down: " + err.Error()
+			code = http.StatusServiceUnavailable
+		}
+		if err := rdb.Ping(r.Context()).Err(); err != nil {
+			status["redis"] = "down: " + err.Error()
+			code = http.StatusServiceUnavailable
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(code)
+		json.NewEncoder(w).Encode(status)
+	}
 }
