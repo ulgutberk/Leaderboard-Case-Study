@@ -9,7 +9,7 @@ services:
     command: >-
       postgres
       -c wal_level=replica
-      -c max_wal_senders=3
+      -c max_wal_senders=10
       -c wal_keep_size=64
       -c hba_file=/etc/postgresql/pg_hba.conf
       -c wal_log_hints=on
