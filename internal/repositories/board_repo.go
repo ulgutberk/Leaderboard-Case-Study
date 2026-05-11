@@ -4,91 +4,128 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/go-redis/redis/v8"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"leaderboard-case-study/internal/models"
 )
 
-// BoardRepository defines all data access operations for boards and scores.
-// Postgres is used for board metadata; Redis ZSET is used for score operations.
+// BoardRepository handles persistent board metadata in Postgres.
 type BoardRepository interface {
-	// --- Postgres: board metadata ---
 	CreateBoard(ctx context.Context, board *models.Board) error
 	GetBoard(ctx context.Context, id int) (*models.Board, error)
-
-	// --- Redis ZSET: score operations ---
-	SetScore(ctx context.Context, boardID int, userID string, score float64) error
-	GetTopScores(ctx context.Context, boardID int, limit int64) ([]models.Score, error)
-	ResetScores(ctx context.Context, boardID int) error
+	GetBoardByName(ctx context.Context, name string) (*models.Board, error)
+	ListBoards(ctx context.Context) ([]models.BoardSummary, error)
 }
 
-// boardRepository is the concrete implementation backed by Postgres + Redis.
 type boardRepository struct {
-	db    *pgxpool.Pool // Postgres connection pool
-	redis *redis.Client // Redis client
+	db *pgxpool.Pool
 }
 
-// NewBoardRepository creates a new BoardRepository.
-func NewBoardRepository(db *pgxpool.Pool, redis *redis.Client) BoardRepository {
-	return &boardRepository{db: db, redis: redis}
+// NewBoardRepository creates a new BoardRepository backed by Postgres.
+func NewBoardRepository(db *pgxpool.Pool) BoardRepository {
+	return &boardRepository{db: db}
 }
 
-// redisKey returns the Redis ZSET key for a given board.
-func (r *boardRepository) redisKey(boardID int) string {
-	return fmt.Sprintf("leaderboard:board:%d", boardID)
+// scheduleType extracts the schedule type string (nil-safe).
+func scheduleType(s *models.Schedule) *string {
+	if s == nil {
+		return nil
+	}
+	return &s.Type
+}
+
+// scheduleInterval extracts the interval seconds (nil-safe).
+func scheduleInterval(s *models.Schedule) *int {
+	if s == nil {
+		return nil
+	}
+	return s.IntervalSeconds
+}
+
+// buildSchedule reconstructs a Schedule from nullable DB columns.
+func buildSchedule(schedType *string, intervalSecs *int) *models.Schedule {
+	if schedType == nil {
+		return nil
+	}
+	return &models.Schedule{
+		Type:            *schedType,
+		IntervalSeconds: intervalSecs,
+	}
 }
 
 // CreateBoard inserts a new board record into Postgres.
 func (r *boardRepository) CreateBoard(ctx context.Context, board *models.Board) error {
 	query := `
-		INSERT INTO boards (name, reset_cron, created_at, updated_at)
-		VALUES ($1, $2, NOW(), NOW())
-		RETURNING id, created_at, updated_at`
-	return r.db.QueryRow(ctx, query, board.Name, board.ResetCron).
-		Scan(&board.ID, &board.CreatedAt, &board.UpdatedAt)
+		INSERT INTO boards (name, description, schedule_type, schedule_interval_seconds)
+		VALUES ($1, $2, $3, $4)
+		RETURNING id`
+	err := r.db.QueryRow(ctx, query,
+		board.Name,
+		board.Description,
+		scheduleType(board.Schedule),
+		scheduleInterval(board.Schedule),
+	).Scan(&board.DbID)
+	if err != nil {
+		return err
+	}
+	// Expose the DB integer ID as "board_{id}" string
+	board.BoardID = fmt.Sprintf("board_%d", board.DbID)
+	return nil
 }
 
-// GetBoard fetches a board by ID from Postgres.
+// GetBoard fetches a board by its integer primary key.
 func (r *boardRepository) GetBoard(ctx context.Context, id int) (*models.Board, error) {
 	board := &models.Board{}
-	query := `SELECT id, name, reset_cron, created_at, updated_at FROM boards WHERE id = $1`
+	var schedType *string
+	var intervalSecs *int
+	query := `
+		SELECT id, name, description, schedule_type, schedule_interval_seconds, created_at
+		FROM boards WHERE id = $1`
 	err := r.db.QueryRow(ctx, query, id).
-		Scan(&board.ID, &board.Name, &board.ResetCron, &board.CreatedAt, &board.UpdatedAt)
+		Scan(&board.DbID, &board.Name, &board.Description, &schedType, &intervalSecs, &board.CreatedAt)
 	if err != nil {
 		return nil, err
 	}
+	board.BoardID = fmt.Sprintf("board_%d", board.DbID)
+	board.Schedule = buildSchedule(schedType, intervalSecs)
 	return board, nil
 }
 
-// SetScore adds or updates a user's score on a board using Redis ZADD.
-func (r *boardRepository) SetScore(ctx context.Context, boardID int, userID string, score float64) error {
-	return r.redis.ZAdd(ctx, r.redisKey(boardID), &redis.Z{
-		Score:  score,
-		Member: userID,
-	}).Err()
-}
-
-// GetTopScores returns the top N scores for a board (highest first) from Redis ZSET.
-func (r *boardRepository) GetTopScores(ctx context.Context, boardID int, limit int64) ([]models.Score, error) {
-	results, err := r.redis.ZRevRangeWithScores(ctx, r.redisKey(boardID), 0, limit-1).Result()
+// ListBoards returns all boards with basic metadata (id + name).
+func (r *boardRepository) ListBoards(ctx context.Context) ([]models.BoardSummary, error) {
+	query := `SELECT id, name FROM boards ORDER BY id`
+	rows, err := r.db.Query(ctx, query)
 	if err != nil {
 		return nil, err
 	}
-
-	scores := make([]models.Score, len(results))
-	for i, z := range results {
-		scores[i] = models.Score{
-			UserID:  z.Member.(string),
-			BoardID: boardID,
-			Value:   z.Score,
-			Rank:    int64(i + 1),
+	defer rows.Close()
+	var boards []models.BoardSummary
+	for rows.Next() {
+		var b models.BoardSummary
+		var dbID int
+		if err := rows.Scan(&dbID, &b.Name); err != nil {
+			return nil, err
 		}
+		b.BoardID = fmt.Sprintf("board_%d", dbID)
+		boards = append(boards, b)
 	}
-	return scores, nil
+	return boards, rows.Err()
 }
 
-// ResetScores deletes all scores for a board from Redis ZSET.
-func (r *boardRepository) ResetScores(ctx context.Context, boardID int) error {
-	return r.redis.Del(ctx, r.redisKey(boardID)).Err()
+// GetBoardByName fetches a board by its unique name.
+func (r *boardRepository) GetBoardByName(ctx context.Context, name string) (*models.Board, error) {
+	board := &models.Board{}
+	var schedType *string
+	var intervalSecs *int
+	query := `
+		SELECT id, name, description, schedule_type, schedule_interval_seconds, created_at
+		FROM boards WHERE name = $1`
+	err := r.db.QueryRow(ctx, query, name).
+		Scan(&board.DbID, &board.Name, &board.Description, &schedType, &intervalSecs, &board.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+	board.BoardID = fmt.Sprintf("board_%d", board.DbID)
+	board.Schedule = buildSchedule(schedType, intervalSecs)
+	return board, nil
 }

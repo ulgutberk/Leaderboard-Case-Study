@@ -7,11 +7,13 @@ CREATE TABLE IF NOT EXISTS users (
 
 -- Create boards table
 CREATE TABLE IF NOT EXISTS boards (
-    id          SERIAL      PRIMARY KEY,
-    name        TEXT        NOT NULL,
-    reset_cron  TEXT,                           -- optional cron expression for score reset
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    id                       SERIAL      PRIMARY KEY,
+    name                     TEXT        NOT NULL,
+    description              TEXT        NOT NULL DEFAULT '',
+    schedule_type            TEXT,                -- e.g. 'interval'
+    schedule_interval_seconds INT,               -- used when schedule_type = 'interval'
+    created_at               TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at               TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- Create scores table

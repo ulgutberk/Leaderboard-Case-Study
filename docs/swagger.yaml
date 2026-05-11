@@ -1,0 +1,257 @@
+basePath: /
+definitions:
+  models.Board:
+    properties:
+      boardId:
+        type: string
+      created_at:
+        type: string
+      description:
+        type: string
+      name:
+        type: string
+      schedule:
+        $ref: '#/definitions/models.Schedule'
+      updated_at:
+        type: string
+    type: object
+  models.Schedule:
+    properties:
+      intervalSeconds:
+        description: used when type is "interval"
+        type: integer
+      type:
+        description: e.g. "interval"
+        type: string
+    type: object
+  models.Score:
+    properties:
+      board_id:
+        type: integer
+      rank:
+        description: 1-based rank, populated on read
+        type: integer
+      score:
+        type: number
+      user_id:
+        type: string
+    type: object
+  models.User:
+    properties:
+      created_at:
+        type: string
+      id:
+        description: e.g. UUID or external user identifier
+        type: string
+      username:
+        type: string
+    type: object
+host: localhost:8080
+info:
+  contact: {}
+  description: REST API for managing leaderboards, users and scores. Requests hit
+    the Leaderboard Service which splits writes/reads between Postgres (boards & users)
+    and Redis ZSET (scores).
+  title: Leaderboard API
+  version: "1.0"
+paths:
+  /boards:
+    post:
+      consumes:
+      - application/json
+      description: Creates a new leaderboard with a name, description and reset schedule
+      parameters:
+      - description: Board payload
+        in: body
+        name: board
+        required: true
+        schema:
+          $ref: '#/definitions/models.Board'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/models.Board'
+        "400":
+          description: validation error
+          schema:
+            type: string
+        "500":
+          description: internal server error
+          schema:
+            type: string
+      summary: Create a new board
+      tags:
+      - boards
+  /boards/{id}:
+    get:
+      description: Retrieves a board by its ID. Accepts "board_123" or plain "123"
+        format.
+      parameters:
+      - description: Board ID (e.g. board_1)
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.Board'
+        "400":
+          description: invalid board id
+          schema:
+            type: string
+        "404":
+          description: not found
+          schema:
+            type: string
+      summary: Get a board by ID
+      tags:
+      - boards
+  /boards/{id}/reset:
+    post:
+      description: Deletes all score entries from the board's Redis ZSET
+      parameters:
+      - description: Board ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: invalid board id
+          schema:
+            type: string
+        "500":
+          description: internal server error
+          schema:
+            type: string
+      summary: Reset all scores on a board
+      tags:
+      - scores
+  /boards/{id}/scores:
+    get:
+      description: Returns the top N scores from the board's Redis ZSET in descending
+        order
+      parameters:
+      - description: Board ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Number of scores to return (default 10)
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/models.Score'
+            type: array
+        "400":
+          description: invalid board id
+          schema:
+            type: string
+        "500":
+          description: internal server error
+          schema:
+            type: string
+      summary: Get top scores for a board
+      tags:
+      - scores
+    post:
+      consumes:
+      - application/json
+      description: Adds or updates a user's score on the given board (stored in Redis
+        ZSET)
+      parameters:
+      - description: Board ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Score payload
+        in: body
+        name: score
+        required: true
+        schema:
+          $ref: '#/definitions/models.Score'
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: invalid request
+          schema:
+            type: string
+        "500":
+          description: internal server error
+          schema:
+            type: string
+      summary: Set a user's score on a board
+      tags:
+      - scores
+  /users:
+    post:
+      consumes:
+      - application/json
+      description: Registers a new user in the system (stored in Postgres)
+      parameters:
+      - description: User payload
+        in: body
+        name: user
+        required: true
+        schema:
+          $ref: '#/definitions/models.User'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/models.User'
+        "400":
+          description: invalid request
+          schema:
+            type: string
+        "500":
+          description: internal server error
+          schema:
+            type: string
+      summary: Create a new user
+      tags:
+      - users
+  /users/{id}:
+    get:
+      description: Retrieves a user by their ID
+      parameters:
+      - description: User ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.User'
+        "404":
+          description: not found
+          schema:
+            type: string
+      summary: Get a user by ID
+      tags:
+      - users
+swagger: "2.0"

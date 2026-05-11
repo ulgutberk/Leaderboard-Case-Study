@@ -1,3 +1,8 @@
+// @title           Leaderboard API
+// @version         1.0
+// @description     REST API for managing leaderboards, users and scores. Requests hit the Leaderboard Service which splits writes/reads between Postgres (boards & users) and Redis ZSET (scores).
+// @host            localhost:8080
+// @BasePath        /
 package main
 
 import (
@@ -5,64 +10,73 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"os"
 
 	"github.com/go-redis/redis/v8"
 	"github.com/gorilla/mux"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	httpSwagger "github.com/swaggo/http-swagger"
+
+	"leaderboard-case-study/configs"
+	_ "leaderboard-case-study/docs"
+	"leaderboard-case-study/internal/handlers"
+	"leaderboard-case-study/internal/repositories"
+	"leaderboard-case-study/internal/services"
 )
 
-// App holds the main dependencies for the service
-// (DB, Redis, Router, etc.)
-type App struct {
-	Router *mux.Router
-	DB     *pgxpool.Pool
-	Redis  *redis.Client
-}
-
 func main() {
-	// Load config from env or use defaults
-	pgURL := os.Getenv("POSTGRES_URL")
-	if pgURL == "" {
-		pgURL = "postgres://postgres:postgres@localhost:5432/leaderboard?sslmode=disable"
-	}
-	redisAddr := os.Getenv("REDIS_ADDR")
-	if redisAddr == "" {
-		redisAddr = "localhost:6379"
-	}
+	// Load configuration from environment variables
+	cfg := configs.Load()
 
-	// Connect to Postgres
-	dbpool, err := pgxpool.New(context.Background(), pgURL)
+	// Connect to Postgres (board/user metadata persistence)
+	db, err := pgxpool.New(context.Background(), cfg.PostgresURL)
 	if err != nil {
 		log.Fatalf("Failed to connect to Postgres: %v", err)
 	}
-	defer dbpool.Close()
+	defer db.Close()
 
-	// Connect to Redis
+	// Connect to Redis (fast score operations via ZSET)
 	redisClient := redis.NewClient(&redis.Options{
-		Addr: redisAddr,
+		Addr: cfg.RedisAddr,
 	})
 	if err := redisClient.Ping(context.Background()).Err(); err != nil {
 		log.Fatalf("Failed to connect to Redis: %v", err)
 	}
 	defer redisClient.Close()
 
-	app := &App{
-		Router: mux.NewRouter(),
-		DB:     dbpool,
-		Redis:  redisClient,
-	}
+	// Wire up layers:
+	//   Repository → Service → Handler
+	//
+	//   Client → Handler → Service
+	//                        ├── BoardRepository  (Postgres)
+	//                        ├── ScoreRepository  (Redis ZSET)
+	//                        └── UserRepository   (Postgres)
 
-	// Health endpoint (for test)
-	app.Router.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("ok"))
-	})
+	boardRepo := repositories.NewBoardRepository(db)
+	scoreRepo := repositories.NewScoreRepository(redisClient)
+	userRepo := repositories.NewUserRepository(db)
 
-	// Açıklama: Tüm client istekleri önce App (Leaderboard Service) üzerinden geçer.
-	// App, ilgili işlemi Postgres (kalıcı metadata) veya Redis ZSET (hızlı skor işlemleri) ile yapar.
-	// Şu an sadece temel bağlantılar ve bir test endpointi var.
+	boardService := services.NewBoardService(boardRepo)
+	scoreService := services.NewScoreService(scoreRepo)
+	userService := services.NewUserService(userRepo)
 
-	fmt.Println("Leaderboard Service running on :8080")
-	log.Fatal(http.ListenAndServe(":8080", app.Router))
+	boardHandler := handlers.NewBoardHandler(boardService)
+	scoreHandler := handlers.NewScoreHandler(scoreService)
+	userHandler := handlers.NewUserHandler(userService)
+
+	// Register routes
+	router := mux.NewRouter()
+	router.HandleFunc("/health", healthHandler).Methods(http.MethodGet)
+	router.PathPrefix("/swagger/").Handler(httpSwagger.WrapHandler)
+	boardHandler.RegisterRoutes(router)
+	scoreHandler.RegisterRoutes(router)
+	userHandler.RegisterRoutes(router)
+
+	fmt.Printf("Leaderboard Service running on %s\n", cfg.ServerAddr)
+	log.Fatal(http.ListenAndServe(cfg.ServerAddr, router))
+}
+
+func healthHandler(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("ok"))
 }

@@ -7,13 +7,12 @@ import (
 	"leaderboard-case-study/internal/repositories"
 )
 
-// BoardService defines the business logic for leaderboard operations.
+// BoardService defines the business logic for board metadata operations.
 type BoardService interface {
 	CreateBoard(ctx context.Context, board *models.Board) error
 	GetBoard(ctx context.Context, id int) (*models.Board, error)
-	SetScore(ctx context.Context, boardID int, userID string, score float64) error
-	GetTopScores(ctx context.Context, boardID int, limit int64) ([]models.Score, error)
-	ResetScores(ctx context.Context, boardID int) error
+	GetBoardByName(ctx context.Context, name string) (*models.Board, error)
+	ListBoards(ctx context.Context) ([]models.BoardSummary, error)
 }
 
 // boardService is the concrete implementation of BoardService.
@@ -21,7 +20,7 @@ type boardService struct {
 	repo repositories.BoardRepository
 }
 
-// NewBoardService creates a new BoardService with the given repository.
+// NewBoardService creates a new BoardService backed by the given repository.
 func NewBoardService(repo repositories.BoardRepository) BoardService {
 	return &boardService{repo: repo}
 }
@@ -34,14 +33,10 @@ func (s *boardService) GetBoard(ctx context.Context, id int) (*models.Board, err
 	return s.repo.GetBoard(ctx, id)
 }
 
-func (s *boardService) SetScore(ctx context.Context, boardID int, userID string, score float64) error {
-	return s.repo.SetScore(ctx, boardID, userID, score)
+func (s *boardService) GetBoardByName(ctx context.Context, name string) (*models.Board, error) {
+	return s.repo.GetBoardByName(ctx, name)
 }
 
-func (s *boardService) GetTopScores(ctx context.Context, boardID int, limit int64) ([]models.Score, error) {
-	return s.repo.GetTopScores(ctx, boardID, limit)
-}
-
-func (s *boardService) ResetScores(ctx context.Context, boardID int) error {
-	return s.repo.ResetScores(ctx, boardID)
+func (s *boardService) ListBoards(ctx context.Context) ([]models.BoardSummary, error) {
+	return s.repo.ListBoards(ctx)
 }

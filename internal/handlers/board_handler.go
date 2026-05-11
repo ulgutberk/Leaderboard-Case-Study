@@ -2,17 +2,27 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
+	"strings"
+	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"leaderboard-case-study/internal/models"
 	"leaderboard-case-study/internal/services"
 )
 
-// BoardHandler handles HTTP requests for board and score operations.
-// It delegates business logic to BoardService.
+// jsonError writes a JSON {"error": msg} response with the given status code.
+func jsonError(w http.ResponseWriter, msg string, status int) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	json.NewEncoder(w).Encode(map[string]string{"error": msg})
+}
+
+// BoardHandler handles HTTP requests for board metadata operations only.
 type BoardHandler struct {
 	service services.BoardService
 }
@@ -22,24 +32,81 @@ func NewBoardHandler(service services.BoardService) *BoardHandler {
 	return &BoardHandler{service: service}
 }
 
-// RegisterRoutes registers all board-related routes on the given router.
+// RegisterRoutes registers board-related routes on the given router.
 func (h *BoardHandler) RegisterRoutes(router *mux.Router) {
+	router.HandleFunc("/boards", h.ListBoards).Methods(http.MethodGet)
 	router.HandleFunc("/boards", h.CreateBoard).Methods(http.MethodPost)
-	router.HandleFunc("/boards/{id}", h.GetBoard).Methods(http.MethodGet)
-	router.HandleFunc("/boards/{id}/scores", h.SetScore).Methods(http.MethodPost)
-	router.HandleFunc("/boards/{id}/scores", h.GetTopScores).Methods(http.MethodGet)
-	router.HandleFunc("/boards/{id}/reset", h.ResetScores).Methods(http.MethodPost)
+	router.HandleFunc("/boards/{boardId}", h.GetBoard).Methods(http.MethodGet)
 }
 
-// CreateBoard handles POST /boards
+// ListBoards godoc
+// @Summary      List all boards
+// @Description  Returns all leaderboards with boardId and name
+// @Tags         boards
+// @Produce      json
+// @Success      200  {array}   models.Board
+// @Failure      500  {string}  string  "internal server error"
+// @Router       /boards [get]
+func (h *BoardHandler) ListBoards(w http.ResponseWriter, r *http.Request) {
+	boards, err := h.service.ListBoards(r.Context())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if boards == nil {
+		boards = []models.BoardSummary{}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(boards)
+}
+
+// CreateBoard godoc
+// @Summary      Create a new board
+// @Description  Creates a new leaderboard with a name, description and reset schedule
+// @Tags         boards
+// @Accept       json
+// @Produce      json
+// @Param        board  body      models.Board  true  "Board payload"
+// @Success      201    {object}  models.Board
+// @Failure      400    {string}  string        "validation error"
+// @Failure      500    {string}  string        "internal server error"
+// @Router       /boards [post]
 func (h *BoardHandler) CreateBoard(w http.ResponseWriter, r *http.Request) {
 	var board models.Board
 	if err := json.NewDecoder(r.Body).Decode(&board); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
+		jsonError(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
+
+	// Validate required fields
+	if board.Name == "" {
+		jsonError(w, `"name" is required`, http.StatusBadRequest)
+		return
+	}
+	if board.Description == "" {
+		jsonError(w, `"description" is required`, http.StatusBadRequest)
+		return
+	}
+	if board.Schedule == nil {
+		jsonError(w, `"schedule" is required`, http.StatusBadRequest)
+		return
+	}
+	if board.Schedule.Type == "" {
+		jsonError(w, `"schedule.type" is required`, http.StatusBadRequest)
+		return
+	}
+	if board.Schedule.IntervalSeconds == nil || *board.Schedule.IntervalSeconds <= 0 {
+		jsonError(w, `"schedule.intervalSeconds" is required and must be positive`, http.StatusBadRequest)
+		return
+	}
+
 	if err := h.service.CreateBoard(r.Context(), &board); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			jsonError(w, "a board with this name already exists", http.StatusBadRequest)
+			return
+		}
+		jsonError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -47,77 +114,39 @@ func (h *BoardHandler) CreateBoard(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(board)
 }
 
-// GetBoard handles GET /boards/{id}
+// GetBoard godoc
+// @Summary      Get a board by ID
+// @Description  Returns board details including the next scheduled reset time
+// @Tags         boards
+// @Produce      json
+// @Param        boardId  path      string  true  "Board ID (e.g. board_123)"
+// @Success      200      {object}  models.Board
+// @Failure      404      {object}  map[string]string  "Board not found"
+// @Router       /boards/{boardId} [get]
 func (h *BoardHandler) GetBoard(w http.ResponseWriter, r *http.Request) {
-	id, err := parseBoardID(r)
+	raw := mux.Vars(r)["boardId"]
+	raw = strings.TrimPrefix(raw, "board_")
+	id, err := strconv.Atoi(raw)
 	if err != nil {
-		http.Error(w, "invalid board id", http.StatusBadRequest)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Board not found"})
 		return
 	}
 	board, err := h.service.GetBoard(r.Context(), id)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Board not found"})
 		return
+	}
+	if board.Schedule != nil && board.Schedule.IntervalSeconds != nil && *board.Schedule.IntervalSeconds > 0 {
+		interval := time.Duration(*board.Schedule.IntervalSeconds) * time.Second
+		elapsed := time.Since(board.CreatedAt)
+		intervals := int64(elapsed / interval)
+		nextReset := board.CreatedAt.Add(time.Duration(intervals+1) * interval)
+		board.NextResetAt = &nextReset
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(board)
-}
-
-// SetScore handles POST /boards/{id}/scores
-func (h *BoardHandler) SetScore(w http.ResponseWriter, r *http.Request) {
-	id, err := parseBoardID(r)
-	if err != nil {
-		http.Error(w, "invalid board id", http.StatusBadRequest)
-		return
-	}
-	var payload models.Score
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
-		return
-	}
-	if err := h.service.SetScore(r.Context(), id, payload.UserID, payload.Value); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
-}
-
-// GetTopScores handles GET /boards/{id}/scores?limit=10
-func (h *BoardHandler) GetTopScores(w http.ResponseWriter, r *http.Request) {
-	id, err := parseBoardID(r)
-	if err != nil {
-		http.Error(w, "invalid board id", http.StatusBadRequest)
-		return
-	}
-	limit := int64(10)
-	if l := r.URL.Query().Get("limit"); l != "" {
-		if parsed, err := strconv.ParseInt(l, 10, 64); err == nil && parsed > 0 {
-			limit = parsed
-		}
-	}
-	scores, err := h.service.GetTopScores(r.Context(), id, limit)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(scores)
-}
-
-// ResetScores handles POST /boards/{id}/reset
-func (h *BoardHandler) ResetScores(w http.ResponseWriter, r *http.Request) {
-	id, err := parseBoardID(r)
-	if err != nil {
-		http.Error(w, "invalid board id", http.StatusBadRequest)
-		return
-	}
-	if err := h.service.ResetScores(r.Context(), id); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
-}
-
-func parseBoardID(r *http.Request) (int, error) {
-	return strconv.Atoi(mux.Vars(r)["id"])
 }
