@@ -77,7 +77,7 @@ func main() {
 	startScheduledResetWorker(context.Background(), scoreService, cfg.ResetScanInterval)
 
 	boardHandler := handlers.NewBoardHandler(boardService)
-	scoreHandler := handlers.NewScoreHandler(scoreService, boardService)
+	scoreHandler := handlers.NewScoreHandler(scoreService, boardService, userService)
 	userHandler := handlers.NewUserHandler(userService)
 
 	// Register routes

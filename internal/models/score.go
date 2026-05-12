@@ -12,11 +12,23 @@ type SetScoreRequest struct {
 	Score  float64 `json:"score"`
 }
 
+// PopulateMockScoresRequest is the request body for POST /boards/{boardId}/mock-scores.
+type PopulateMockScoresRequest struct {
+	Count int `json:"count"`
+}
+
 // SetScoreResponse is returned by POST /boards/{boardId}/scores.
 type SetScoreResponse struct {
 	BoardID string  `json:"boardId"`
 	UserID  string  `json:"userId"`
 	Score   float64 `json:"score"`
+}
+
+// PopulateMockScoresResponse describes the generated mock scores for a board.
+type PopulateMockScoresResponse struct {
+	BoardID string       `json:"boardId"`
+	Count   int          `json:"count"`
+	Scores  []ScoreEntry `json:"scores"`
 }
 
 // SurroundingsResponse is returned by GET /boards/{boardId}/scores/{userId}/surroundings.

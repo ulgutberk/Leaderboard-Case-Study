@@ -4,9 +4,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/rand"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -19,18 +21,26 @@ import (
 type ScoreHandler struct {
 	service      services.ScoreService
 	boardService services.BoardService
+	userService  services.UserService
+	randSource   *rand.Rand
 }
 
 // NewScoreHandler creates a new ScoreHandler.
 // boardService is used to verify board existence before score operations.
-func NewScoreHandler(service services.ScoreService, boardService services.BoardService) *ScoreHandler {
-	return &ScoreHandler{service: service, boardService: boardService}
+func NewScoreHandler(service services.ScoreService, boardService services.BoardService, userService services.UserService) *ScoreHandler {
+	return &ScoreHandler{
+		service:      service,
+		boardService: boardService,
+		userService:  userService,
+		randSource:   rand.New(rand.NewSource(time.Now().UnixNano())),
+	}
 }
 
 // RegisterRoutes registers score-related routes on the given router.
 func (h *ScoreHandler) RegisterRoutes(router *mux.Router) {
 	router.HandleFunc("/boards/{boardId}/scores", h.SetScore).Methods(http.MethodPost)
 	router.HandleFunc("/boards/{boardId}/scores", h.GetTopScores).Methods(http.MethodGet)
+	router.HandleFunc("/boards/{boardId}/mock-scores", h.PopulateMockScores).Methods(http.MethodPost)
 	router.HandleFunc("/boards/{boardId}/scores/{userId}/surroundings", h.GetSurroundings).Methods(http.MethodGet)
 	router.HandleFunc("/boards/{boardId}/reset", h.ResetScores).Methods(http.MethodPost)
 }
@@ -144,6 +154,67 @@ func (h *ScoreHandler) GetTopScores(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(scores)
+}
+
+// PopulateMockScores godoc
+// @Summary      Populate a board with mock scores
+// @Description  Creates n mock users with random scores on the board to facilitate testing.
+// @Tags         scores
+// @Accept       json
+// @Produce      json
+// @Param        boardId  path  string                            true  "Board ID (e.g. board_123)"
+// @Param        body     body  models.PopulateMockScoresRequest  true  "Number of mock users to create"
+// @Success      201      {object}  models.PopulateMockScoresResponse
+// @Failure      400      {object}  map[string]string  "validation error"
+// @Failure      404      {object}  map[string]string  "Board not found"
+// @Router       /boards/{boardId}/mock-scores [post]
+func (h *ScoreHandler) PopulateMockScores(w http.ResponseWriter, r *http.Request) {
+	boardID, boardIDStr, err := h.parseBoardID(r)
+	if err != nil {
+		jsonError(w, "Board not found", http.StatusNotFound)
+		return
+	}
+	if !h.requireBoard(w, r, boardID) {
+		return
+	}
+
+	var payload models.PopulateMockScoresRequest
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		jsonError(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	if payload.Count <= 0 {
+		jsonError(w, `"count" must be a positive integer`, http.StatusBadRequest)
+		return
+	}
+
+	entries := make([]models.ScoreEntry, 0, payload.Count)
+	seed := time.Now().UnixNano()
+	for index := 0; index < payload.Count; index++ {
+		userID := fmt.Sprintf("mock_user_%d_%d", seed, index+1)
+		username := fmt.Sprintf("mock_player_%d_%d", seed, index+1)
+		score := float64(h.randSource.Intn(9901) + 100)
+
+		user := &models.User{ID: userID, Username: username}
+		if err := h.userService.CreateUser(r.Context(), user); err != nil {
+			jsonError(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if err := h.service.SetScore(r.Context(), boardID, userID, score); err != nil {
+			jsonError(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		entries = append(entries, models.ScoreEntry{UserID: userID, Score: score})
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(models.PopulateMockScoresResponse{
+		BoardID: boardIDStr,
+		Count:   payload.Count,
+		Scores:  entries,
+	})
 }
 
 // GetSurroundings godoc
