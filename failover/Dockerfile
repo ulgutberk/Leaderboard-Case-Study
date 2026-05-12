@@ -1,10 +1,12 @@
-FROM postgres:15
-RUN apt-get update && apt-get install -y --no-install-recommends \
+FROM docker:24-cli
+
+RUN apk add --no-cache \
+    bash \
     curl \
-    msmtp \
-    ca-certificates \
-    docker.io \
-    && rm -rf /var/lib/apt/lists/*
+    postgresql-client \
+    msmtp
+
 COPY failover.sh /failover.sh
 RUN chmod +x /failover.sh
+
 ENTRYPOINT ["/failover.sh"]

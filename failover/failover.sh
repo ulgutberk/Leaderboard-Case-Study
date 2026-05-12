@@ -93,36 +93,57 @@ while true; do
     if [ "$PROMOTED" = "false" ]; then
       echo "[FAILOVER] $(date) - Primary DOWN. Promoting replica..."
 
-      # Promote replica
+      READY=false
+
+      # 1. Try promotion
       if psql -h postgres-replica -U postgres -d leaderboard \
         -c "SELECT pg_promote();" > /dev/null 2>&1; then
-        echo "[FAILOVER] $(date) - Replica promoted."
+        echo "[FAILOVER] $(date) - Promotion requested on replica."
       else
         echo "[FAILOVER] $(date) - WARNING: pg_promote() failed (may already be primary)."
       fi
 
-      # Update PgBouncer config to point to replica
-      cp "$PGBOUNCER_CFG" /tmp/pgbouncer_new.ini
-      sed "s/host=postgres-primary/host=postgres-replica/" \
-        /tmp/pgbouncer_new.ini > "$PGBOUNCER_CFG"
-      rm -f /tmp/pgbouncer_new.ini
+      # 2. Wait until replica is actually writable
+      for i in $(seq 1 15); do
+        STATUS=$(psql -h postgres-replica -U postgres -d leaderboard -tAc \
+          "SELECT NOT pg_is_in_recovery();" 2>/dev/null | tr -d '[:space:]')
 
-      # Reload PgBouncer (once)
-      PGPASSWORD=pgbounceradmin psql -h pgbouncer -p 5432 \
-        -U pgbounceradmin pgbouncer -c "RELOAD;" > /dev/null 2>&1 \
-        && echo "[FAILOVER] $(date) - PgBouncer reloaded — traffic → replica." \
-        || echo "[FAILOVER] $(date) - WARNING: PgBouncer reload failed."
+        if [ "$STATUS" = "t" ]; then
+          READY=true
+          echo "[FAILOVER] $(date) - Replica is writable."
+          break
+        fi
 
-      # Send alert email
-      export PGPASSWORD=postgres
-      printf "Subject: [LEADERBOARD] FAILOVER - Primary DOWN\nTo: %s\nFrom: %s\n\nTime: %s\nPostgres primary is DOWN.\nReplica has been promoted.\nPgBouncer now routes traffic to replica.\nManual intervention required to restore primary.\n" \
-        "$ALERT_EMAIL_TO" "$ALERT_EMAIL_FROM" "$(date)" \
-        | msmtp --file=/etc/msmtp/msmtprc "$ALERT_EMAIL_TO" \
-        && echo "[FAILOVER] Alert email sent." \
-        || echo "[FAILOVER] WARNING: Alert email failed."
+        echo "[FAILOVER] $(date) - Waiting for replica to become writable... (${i}/15)"
+        sleep 2
+      done
 
-      FAILED=true
-      PROMOTED=true
+      if [ "$READY" = "true" ]; then
+        # 3. Update PgBouncer config to point to replica
+        cp "$PGBOUNCER_CFG" /tmp/pgbouncer_new.ini
+        sed "s/host=postgres-primary/host=postgres-replica/" \
+          /tmp/pgbouncer_new.ini > "$PGBOUNCER_CFG"
+        rm -f /tmp/pgbouncer_new.ini
+
+        # 4. Reload PgBouncer
+        PGPASSWORD=pgbounceradmin psql -h pgbouncer -p 5432 \
+          -U pgbounceradmin pgbouncer -c "RELOAD;" > /dev/null 2>&1 \
+          && echo "[FAILOVER] $(date) - PgBouncer reloaded — traffic → replica." \
+          || echo "[FAILOVER] $(date) - WARNING: PgBouncer reload failed."
+
+        # 5. Send alert email
+        export PGPASSWORD=postgres
+        printf "Subject: [LEADERBOARD] FAILOVER - Primary DOWN\nTo: %s\nFrom: %s\n\nTime: %s\nPostgres primary is DOWN.\nReplica has been promoted and is writable.\nPgBouncer now routes traffic to replica.\nManual intervention required to restore primary.\n" \
+          "$ALERT_EMAIL_TO" "$ALERT_EMAIL_FROM" "$(date)" \
+          | msmtp --file=/etc/msmtp/msmtprc "$ALERT_EMAIL_TO" \
+          && echo "[FAILOVER] Alert email sent." \
+          || echo "[FAILOVER] WARNING: Alert email failed."
+
+        FAILED=true
+        PROMOTED=true
+      else
+        echo "[FAILOVER] $(date) - ERROR: Replica never became writable. PgBouncer not redirected."
+      fi
     else
       echo "[INFO] $(date) - Replica already promoted. Waiting for manual intervention."
     fi

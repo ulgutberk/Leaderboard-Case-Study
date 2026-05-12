@@ -66,38 +66,44 @@ func (h *BoardHandler) ListBoards(w http.ResponseWriter, r *http.Request) {
 // @Tags         boards
 // @Accept       json
 // @Produce      json
-// @Param        board  body      models.Board  true  "Board payload"
+// @Param 		board body models.CreateBoardRequest true "Board payload"
 // @Success      201    {object}  models.Board
 // @Failure      400    {string}  string        "validation error"
 // @Failure      500    {string}  string        "internal server error"
 // @Router       /boards [post]
 func (h *BoardHandler) CreateBoard(w http.ResponseWriter, r *http.Request) {
-	var board models.Board
-	if err := json.NewDecoder(r.Body).Decode(&board); err != nil {
+	var req models.CreateBoardRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		jsonError(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
 
 	// Validate required fields
-	if board.Name == "" {
+	if req.Name == "" {
 		jsonError(w, `"name" is required`, http.StatusBadRequest)
 		return
 	}
-	if board.Description == "" {
+	if req.Description == "" {
 		jsonError(w, `"description" is required`, http.StatusBadRequest)
 		return
 	}
-	if board.Schedule == nil {
+	if req.Schedule == nil {
 		jsonError(w, `"schedule" is required`, http.StatusBadRequest)
 		return
 	}
-	if board.Schedule.Type == "" {
+	if req.Schedule.Type == "" {
 		jsonError(w, `"schedule.type" is required`, http.StatusBadRequest)
 		return
 	}
-	if board.Schedule.IntervalSeconds == nil || *board.Schedule.IntervalSeconds <= 0 {
+	if req.Schedule.IntervalSeconds == nil || *req.Schedule.IntervalSeconds <= 0 {
 		jsonError(w, `"schedule.intervalSeconds" is required and must be positive`, http.StatusBadRequest)
 		return
+	}
+
+	board := models.Board{
+		Name:        req.Name,
+		Description: req.Description,
+		Schedule:    req.Schedule,
 	}
 
 	if err := h.service.CreateBoard(r.Context(), &board); err != nil {

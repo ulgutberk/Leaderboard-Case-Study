@@ -29,3 +29,10 @@ type Board struct {
 	// DbID is the internal integer primary key used only within the repository layer.
 	DbID int `json:"-"`
 }
+
+// CreateBoardRequest is the request body for POST /boards.
+type CreateBoardRequest struct {
+	Name        string    `json:"name"`
+	Description string    `json:"description"`
+	Schedule    *Schedule `json:"schedule"`
+}

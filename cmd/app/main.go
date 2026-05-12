@@ -36,9 +36,17 @@ func main() {
 	defer db.Close()
 
 	// Connect to Redis (fast score operations via ZSET)
-	redisClient := redis.NewClient(&redis.Options{
-		Addr: cfg.RedisAddr,
-	})
+	var redisClient *redis.Client
+	if len(cfg.RedisSentinelAddrs) > 0 {
+		redisClient = redis.NewFailoverClient(&redis.FailoverOptions{
+			MasterName:    cfg.RedisMasterName,
+			SentinelAddrs: cfg.RedisSentinelAddrs,
+		})
+	} else {
+		redisClient = redis.NewClient(&redis.Options{
+			Addr: cfg.RedisAddr,
+		})
+	}
 	if err := redisClient.Ping(context.Background()).Err(); err != nil {
 		log.Fatalf("Failed to connect to Redis: %v", err)
 	}
