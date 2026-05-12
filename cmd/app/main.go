@@ -65,7 +65,7 @@ func main() {
 	userRepo := repositories.NewUserRepository(db)
 
 	boardService := services.NewBoardService(boardRepo)
-	scoreService := services.NewScoreService(scoreRepo)
+	scoreService := services.NewScoreService(scoreRepo, boardRepo)
 	userService := services.NewUserService(userRepo)
 
 	// Rebuild Redis cache from Postgres on startup (crash recovery / cold start).
@@ -74,6 +74,7 @@ func main() {
 	} else {
 		log.Println("Redis score cache warmed from Postgres")
 	}
+	startScheduledResetWorker(context.Background(), scoreService, cfg.ResetScanInterval)
 
 	boardHandler := handlers.NewBoardHandler(boardService)
 	scoreHandler := handlers.NewScoreHandler(scoreService, boardService)
@@ -114,6 +115,32 @@ func mustConnectPostgres(url string) *pgxpool.Pool {
 	}
 	log.Fatalf("Failed to connect to Postgres after %d attempts", maxAttempts)
 	return nil
+}
+
+func startScheduledResetWorker(ctx context.Context, scoreService services.ScoreService, interval time.Duration) {
+	if interval <= 0 {
+		interval = time.Minute
+	}
+
+	go func() {
+		if err := scoreService.ResetDueBoards(ctx); err != nil {
+			log.Printf("warn: scheduled reset scan failed: %v", err)
+		}
+
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if err := scoreService.ResetDueBoards(ctx); err != nil {
+					log.Printf("warn: scheduled reset scan failed: %v", err)
+				}
+			}
+		}
+	}()
 }
 
 func healthHandler(db *pgxpool.Pool, rdb *redis.Client) http.HandlerFunc {

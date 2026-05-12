@@ -44,7 +44,7 @@ func (h *BoardHandler) RegisterRoutes(router *mux.Router) {
 // @Description  Returns all leaderboards with boardId and name
 // @Tags         boards
 // @Produce      json
-// @Success      200  {array}   models.Board
+// @Success      200  {array}   models.BoardSummary
 // @Failure      500  {string}  string  "internal server error"
 // @Router       /boards [get]
 func (h *BoardHandler) ListBoards(w http.ResponseWriter, r *http.Request) {

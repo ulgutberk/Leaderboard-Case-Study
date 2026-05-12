@@ -13,6 +13,7 @@ type Config struct {
 	PostgresURL        string        // Postgres connection string
 	PostgresReadURL    string        // replica — read-only queries
 	RedisAddr          string        // Redis address (e.g. "localhost:6379")
+	ResetScanInterval  time.Duration // interval between scheduled reset scans
 	RateLimitRequests  int           // requests per window
 	RateLimitWindow    time.Duration // window size
 	RedisSentinelAddrs []string      // Redis Sentinel addresses
@@ -26,6 +27,7 @@ func Load() *Config {
 		PostgresURL:        getEnv("POSTGRES_URL", "postgres://postgres:postgres@localhost:5432/leaderboard?sslmode=disable"),
 		PostgresReadURL:    getEnv("POSTGRES_READ_URL", "postgres://postgres:postgres@localhost:5432/leaderboard?sslmode=disable"),
 		RedisAddr:          getEnv("REDIS_ADDR", "localhost:6379"),
+		ResetScanInterval:  getEnvDuration("RESET_SCAN_INTERVAL", time.Minute),
 		RateLimitRequests:  getEnvInt("RATE_LIMIT_REQUESTS", 100), // Rate limit defaults to 100 requests per window
 		RateLimitWindow:    getEnvDuration("RATE_LIMIT_WINDOW", time.Minute),
 		RedisSentinelAddrs: getEnvList("REDIS_SENTINEL_ADDR"),

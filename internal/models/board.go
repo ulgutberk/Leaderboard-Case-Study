@@ -26,6 +26,8 @@ type Board struct {
 
 	// CreatedAt is managed by Postgres (DEFAULT NOW()); hidden from JSON.
 	CreatedAt time.Time `json:"-"`
+	// LastResetAt tracks the start of the active score period for scheduled boards.
+	LastResetAt time.Time `json:"-"`
 	// DbID is the internal integer primary key used only within the repository layer.
 	DbID int `json:"-"`
 }

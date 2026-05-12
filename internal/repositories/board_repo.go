@@ -3,6 +3,7 @@ package repositories
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -15,6 +16,8 @@ type BoardRepository interface {
 	GetBoard(ctx context.Context, id int) (*models.Board, error)
 	GetBoardByName(ctx context.Context, name string) (*models.Board, error)
 	ListBoards(ctx context.Context) ([]models.BoardSummary, error)
+	ListScheduledBoards(ctx context.Context) ([]models.Board, error)
+	UpdateLastResetAt(ctx context.Context, id int, lastResetAt time.Time) error
 }
 
 type boardRepository struct {
@@ -56,15 +59,15 @@ func buildSchedule(schedType *string, intervalSecs *int) *models.Schedule {
 // CreateBoard inserts a new board record into Postgres.
 func (r *boardRepository) CreateBoard(ctx context.Context, board *models.Board) error {
 	query := `
-		INSERT INTO boards (name, description, schedule_type, schedule_interval_seconds)
-		VALUES ($1, $2, $3, $4)
-		RETURNING id`
+		INSERT INTO boards (name, description, schedule_type, schedule_interval_seconds, last_reset_at)
+		VALUES ($1, $2, $3, $4, NOW())
+		RETURNING id, created_at, last_reset_at`
 	err := r.db.QueryRow(ctx, query,
 		board.Name,
 		board.Description,
 		scheduleType(board.Schedule),
 		scheduleInterval(board.Schedule),
-	).Scan(&board.DbID)
+	).Scan(&board.DbID, &board.CreatedAt, &board.LastResetAt)
 	if err != nil {
 		return err
 	}
@@ -79,10 +82,10 @@ func (r *boardRepository) GetBoard(ctx context.Context, id int) (*models.Board, 
 	var schedType *string
 	var intervalSecs *int
 	query := `
-		SELECT id, name, description, schedule_type, schedule_interval_seconds, created_at
+		SELECT id, name, description, schedule_type, schedule_interval_seconds, created_at, last_reset_at
 		FROM boards WHERE id = $1`
 	err := r.db.QueryRow(ctx, query, id).
-		Scan(&board.DbID, &board.Name, &board.Description, &schedType, &intervalSecs, &board.CreatedAt)
+		Scan(&board.DbID, &board.Name, &board.Description, &schedType, &intervalSecs, &board.CreatedAt, &board.LastResetAt)
 	if err != nil {
 		return nil, err
 	}
@@ -118,14 +121,49 @@ func (r *boardRepository) GetBoardByName(ctx context.Context, name string) (*mod
 	var schedType *string
 	var intervalSecs *int
 	query := `
-		SELECT id, name, description, schedule_type, schedule_interval_seconds, created_at
+		SELECT id, name, description, schedule_type, schedule_interval_seconds, created_at, last_reset_at
 		FROM boards WHERE name = $1`
 	err := r.db.QueryRow(ctx, query, name).
-		Scan(&board.DbID, &board.Name, &board.Description, &schedType, &intervalSecs, &board.CreatedAt)
+		Scan(&board.DbID, &board.Name, &board.Description, &schedType, &intervalSecs, &board.CreatedAt, &board.LastResetAt)
 	if err != nil {
 		return nil, err
 	}
 	board.BoardID = fmt.Sprintf("board_%d", board.DbID)
 	board.Schedule = buildSchedule(schedType, intervalSecs)
 	return board, nil
+}
+
+// ListScheduledBoards returns boards with an interval-based reset schedule.
+func (r *boardRepository) ListScheduledBoards(ctx context.Context) ([]models.Board, error) {
+	query := `
+		SELECT id, name, description, schedule_type, schedule_interval_seconds, created_at, last_reset_at
+		FROM boards
+		WHERE schedule_type = 'interval' AND schedule_interval_seconds IS NOT NULL AND schedule_interval_seconds > 0
+		ORDER BY id`
+	rows, err := r.db.Query(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var boards []models.Board
+	for rows.Next() {
+		var board models.Board
+		var schedType *string
+		var intervalSecs *int
+		if err := rows.Scan(&board.DbID, &board.Name, &board.Description, &schedType, &intervalSecs, &board.CreatedAt, &board.LastResetAt); err != nil {
+			return nil, err
+		}
+		board.BoardID = fmt.Sprintf("board_%d", board.DbID)
+		board.Schedule = buildSchedule(schedType, intervalSecs)
+		boards = append(boards, board)
+	}
+
+	return boards, rows.Err()
+}
+
+// UpdateLastResetAt advances the board's active reset window.
+func (r *boardRepository) UpdateLastResetAt(ctx context.Context, id int, lastResetAt time.Time) error {
+	_, err := r.db.Exec(ctx, `UPDATE boards SET last_reset_at = $2, updated_at = NOW() WHERE id = $1`, id, lastResetAt)
+	return err
 }
