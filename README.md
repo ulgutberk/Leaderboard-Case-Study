@@ -158,156 +158,27 @@ go test -v ./...
 
 ## API Reference
 
+Full interactive API documentation is available via Swagger UI after starting the service:
+
+```
+http://localhost:8080/swagger/index.html
+```
+
 All endpoints return JSON. Error responses use the format `{"error": "message"}`.
 
-### Users
-
-#### `POST /users` — Create User
-
-```json
-// Request
-{
-  "id": "user_abc",
-  "username": "player1"
-}
-
-// Response 201
-{
-  "id": "user_abc",
-  "username": "player1"
-}
-```
-
-#### `GET /users/{id}` — Get User
-
-```json
-// Response 200
-{
-  "id": "user_abc",
-  "username": "player1"
-}
-```
-
----
-
-### Boards
-
-#### `POST /boards` — Create Board
-
-```json
-// Request
-{
-  "name": "Weekly Champions",
-  "description": "Weekly leaderboard",
-  "schedule": {
-    "type": "interval",
-    "intervalSeconds": 604800
-  }
-}
-
-// Response 201
-{
-  "boardId": "board_1",
-  "name": "Weekly Champions",
-  "description": "Weekly leaderboard",
-  "schedule": { "type": "interval", "intervalSeconds": 604800 },
-  "nextResetAt": "2026-05-21T10:00:00Z"
-}
-```
-
-#### `GET /boards` — List All Boards
-
-```json
-// Response 200
-[
-  { "boardId": "board_1", "name": "Weekly Champions" },
-  { "boardId": "board_2", "name": "All-Time Rankings" }
-]
-```
-
-#### `GET /boards/{boardId}` — Get Board Detail
-
-```json
-// Response 200
-{
-  "boardId": "board_1",
-  "name": "Weekly Champions",
-  "description": "Weekly leaderboard",
-  "schedule": { "type": "interval", "intervalSeconds": 604800 },
-  "nextResetAt": "2026-05-21T10:00:00Z"
-}
-```
-
----
-
-### Scores
-
-#### `POST /boards/{boardId}/scores` — Set / Update Score
-
-```json
-// Request
-{
-  "userId": "user_abc",
-  "score": 4200
-}
-
-// Response 200
-{
-  "boardId": "board_1",
-  "userId": "user_abc",
-  "score": 4200
-}
-```
-
-**Note:** When a score is updated, `created_at` is preserved — on equal scores, the earlier submission ranks higher.
-
-#### `GET /boards/{boardId}/scores?limit=10` — Get Top N Scores
-
-```json
-// Response 200
-[
-  { "userId": "user_abc", "score": 9500 },
-  { "userId": "user_xyz", "score": 8200 }
-]
-```
-
-#### `GET /boards/{boardId}/scores/{userId}/surroundings?n=3` — Get Surrounding Ranks
-
-```json
-// Response 200
-{
-  "user": { "userId": "user_abc", "score": 4200 },
-  "above": [
-    { "userId": "user_top1", "score": 4800 },
-    { "userId": "user_top2", "score": 4600 }
-  ],
-  "below": [
-    { "userId": "user_low1", "score": 3900 },
-    { "userId": "user_low2", "score": 3500 }
-  ]
-}
-```
-
-#### `POST /boards/{boardId}/reset` — Reset All Scores
-
-```json
-// Response 200
-{ "message": "scores reset" }
-```
-
-#### `POST /boards/{boardId}/mock-scores` — Generate Mock Data
-
-```json
-// Request
-{ "count": 100 }
-
-// Response 200
-{
-  "boardId": "board_1",
-  "count": 100,
-  "scores": [ ... ]
-}
-```
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/users` | Create a user |
+| `GET` | `/users/{id}` | Get a user by ID |
+| `POST` | `/boards` | Create a leaderboard |
+| `GET` | `/boards` | List all leaderboards |
+| `GET` | `/boards/{boardId}` | Get board detail |
+| `POST` | `/boards/{boardId}/scores` | Set or update a user's score |
+| `GET` | `/boards/{boardId}/scores` | Get top N scores (`?limit=10`) |
+| `GET` | `/boards/{boardId}/scores/{userId}/surroundings` | Get surrounding ranks (`?n=3`) |
+| `POST` | `/boards/{boardId}/reset` | Reset all scores on a board |
+| `POST` | `/boards/{boardId}/mock-scores` | Populate board with mock scores |
+| `GET` | `/health` | Health check |
 
 ---
 
