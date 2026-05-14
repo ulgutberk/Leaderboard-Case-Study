@@ -15,8 +15,6 @@ import (
 "leaderboard-case-study/internal/models"
 )
 
-// ── Mock: ScoreService ────────────────────────────────────────────────────────
-
 type mockScoreService struct {
 setScoreFn       func(ctx context.Context, boardID int, userID string, score float64) error
 getTopScoresFn   func(ctx context.Context, boardID int, limit int64) ([]models.ScoreEntry, error)
@@ -41,7 +39,6 @@ func (m *mockScoreService) ResetDueBoards(ctx context.Context) error {
 return m.resetDueBoardsFn(ctx)
 }
 
-// ── Mock: UserService ─────────────────────────────────────────────────────────
 
 type mockUserService struct {
 createFn func(ctx context.Context, user *models.User) error
@@ -55,7 +52,6 @@ func (m *mockUserService) GetUser(ctx context.Context, id string) (*models.User,
 return m.getFn(ctx, id)
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
 
 func newScoreHandler(boardSvc *mockBoardService, scoreSvc *mockScoreService, userSvc *mockUserService) *handlers.ScoreHandler {
 return handlers.NewScoreHandler(scoreSvc, boardSvc, userSvc)
@@ -87,7 +83,6 @@ getFn:    func(_ context.Context, _ string) (*models.User, error) { return nil, 
 }
 }
 
-// ── PopulateMockScores ────────────────────────────────────────────────────────
 
 func TestPopulateMockScores_Success(t *testing.T) {
 boardSvc := nopSvc()
@@ -171,8 +166,6 @@ if rr.Code != http.StatusBadRequest {
 t.Fatalf("expected 400, got %d body=%s", rr.Code, rr.Body.String())
 }
 }
-
-// ── SetScore ──────────────────────────────────────────────────────────────────
 
 func TestSetScore_Success(t *testing.T) {
 boardSvc := nopSvc()
@@ -264,7 +257,6 @@ t.Fatalf("expected 400, got %d", rr.Code)
 }
 }
 
-// ── GetTopScores ──────────────────────────────────────────────────────────────
 
 func TestGetTopScores_Success(t *testing.T) {
 boardSvc := nopSvc()
@@ -374,7 +366,6 @@ t.Errorf("expected default limit 10, got %d", capturedLimit)
 }
 }
 
-// ── GetSurroundings ───────────────────────────────────────────────────────────
 
 func TestGetSurroundings_Success(t *testing.T) {
 boardSvc := nopSvc()

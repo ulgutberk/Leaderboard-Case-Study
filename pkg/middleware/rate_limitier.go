@@ -9,7 +9,6 @@ import (
     "github.com/go-redis/redis/v8"
 )
 
-// Atomic fixed-window counter via Lua (INCR + EXPIRE).
 // Returns 1 if allowed, 0 if limit exceeded.
 var rateLimitScript = redis.NewScript(`
 local key    = KEYS[1]
@@ -26,7 +25,6 @@ return 1
 `)
 
 // RateLimiter limits each IP to `limit` requests per `window`.
-// Backed by Redis — works across multiple service instances.
 func RateLimiter(rdb *redis.Client, limit int, window time.Duration) func(http.Handler) http.Handler {
     windowSecs := int(window.Seconds())
     return func(next http.Handler) http.Handler {
@@ -38,7 +36,6 @@ func RateLimiter(rdb *redis.Client, limit int, window time.Duration) func(http.H
                 limit, windowSecs,
             ).Int()
             if err != nil {
-                // Redis hiccup — fail open, don't block traffic.
                 next.ServeHTTP(w, r)
                 return
             }

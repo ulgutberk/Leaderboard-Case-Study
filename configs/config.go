@@ -7,20 +7,18 @@ import (
 	"time"
 )
 
-// Config holds all application configuration loaded from environment variables.
 type Config struct {
-	ServerAddr         string        // HTTP server address (e.g. ":8080")
-	PostgresURL        string        // Postgres connection string
-	PostgresReadURL    string        // replica — read-only queries
-	RedisAddr          string        // Redis address (e.g. "localhost:6379")
-	ResetScanInterval  time.Duration // interval between scheduled reset scans
-	RateLimitRequests  int           // requests per window
-	RateLimitWindow    time.Duration // window size
-	RedisSentinelAddrs []string      // Redis Sentinel addresses
-	RedisMasterName    string        // Redis Master name
+	ServerAddr         string
+	PostgresURL        string
+	PostgresReadURL    string
+	RedisAddr          string
+	ResetScanInterval  time.Duration
+	RateLimitRequests  int
+	RateLimitWindow    time.Duration
+	RedisSentinelAddrs []string
+	RedisMasterName    string
 }
 
-// Load reads configuration from environment variables with sensible defaults.
 func Load() *Config {
 	return &Config{
 		ServerAddr:         getEnv("SERVER_ADDR", ":8080"),

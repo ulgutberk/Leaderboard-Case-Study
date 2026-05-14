@@ -7,7 +7,6 @@ import (
 	"leaderboard-case-study/internal/repositories"
 )
 
-// BoardService defines the business logic for board metadata operations.
 type BoardService interface {
 	CreateBoard(ctx context.Context, board *models.Board) error
 	GetBoard(ctx context.Context, id int) (*models.Board, error)
@@ -15,12 +14,10 @@ type BoardService interface {
 	ListBoards(ctx context.Context) ([]models.BoardSummary, error)
 }
 
-// boardService is the concrete implementation of BoardService.
 type boardService struct {
 	repo repositories.BoardRepository
 }
 
-// NewBoardService creates a new BoardService backed by the given repository.
 func NewBoardService(repo repositories.BoardRepository) BoardService {
 	return &boardService{repo: repo}
 }

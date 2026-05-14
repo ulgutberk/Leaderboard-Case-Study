@@ -15,24 +15,20 @@ import (
 	"leaderboard-case-study/internal/services"
 )
 
-// jsonError writes a JSON {"error": msg} response with the given status code.
 func jsonError(w http.ResponseWriter, msg string, status int) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	json.NewEncoder(w).Encode(map[string]string{"error": msg})
 }
 
-// BoardHandler handles HTTP requests for board metadata operations only.
 type BoardHandler struct {
 	service services.BoardService
 }
 
-// NewBoardHandler creates a new BoardHandler.
 func NewBoardHandler(service services.BoardService) *BoardHandler {
 	return &BoardHandler{service: service}
 }
 
-// RegisterRoutes registers board-related routes on the given router.
 func (h *BoardHandler) RegisterRoutes(router *mux.Router) {
 	router.HandleFunc("/boards", h.ListBoards).Methods(http.MethodGet)
 	router.HandleFunc("/boards", h.CreateBoard).Methods(http.MethodPost)
@@ -78,7 +74,6 @@ func (h *BoardHandler) CreateBoard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate required fields
 	if req.Name == "" {
 		jsonError(w, `"name" is required`, http.StatusBadRequest)
 		return

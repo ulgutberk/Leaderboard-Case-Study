@@ -1,12 +1,9 @@
 -- =============================================================
 -- Seed Script: Random Data Generation
 -- Generates sample users, boards, and scores for development/testing.
--- Run manually: psql $DATABASE_URL -f migrations/002_seed.sql
 -- =============================================================
 
--- -------------------------------------------------------
 -- 1. Users — 50 random users
--- -------------------------------------------------------
 INSERT INTO users (id, username, created_at)
 SELECT
     'user-' || gs                                         AS id,
@@ -15,9 +12,7 @@ SELECT
 FROM generate_series(1, 50) AS gs
 ON CONFLICT DO NOTHING;
 
--- -------------------------------------------------------
 -- 2. Boards — 5 boards with varying reset schedules
--- -------------------------------------------------------
 INSERT INTO boards (name, description, schedule_type, schedule_interval_seconds, created_at, updated_at)
 VALUES
     ('Weekly Champions',  'Top players of the week',    'interval', 604800,  NOW(), NOW()),
@@ -27,14 +22,12 @@ VALUES
     ('Weekend Warriors',  'Runs over the weekend',       'interval', 172800,  NOW(), NOW())
 ON CONFLICT DO NOTHING;
 
--- -------------------------------------------------------
 -- 3. Scores — random scores for every user on every board
--- -------------------------------------------------------
 INSERT INTO scores (board_id, user_id, score, updated_at)
 SELECT
     b.id                                                  AS board_id,
     'user-' || gs                                         AS user_id,
-    round((random() * 9900 + 100)::numeric, 2)            AS score,   -- score between 100 and 10000
+    round((random() * 9900 + 100)::numeric, 2)            AS score,
     NOW() - (random() * INTERVAL '30 days')               AS updated_at
 FROM
     generate_series(1, 50) AS gs

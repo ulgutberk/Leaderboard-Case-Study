@@ -10,18 +10,13 @@ import (
 "leaderboard-case-study/internal/services"
 )
 
-// newScoreSvc is a convenience constructor with fixed now() clock.
 func newScoreSvc(score *mockScoreRepo, board *mockBoardRepo, now time.Time) services.ScoreService {
 svc := services.NewScoreService(score, board)
-// Use the exported constructor; inject clock via a thin adapter that wraps now.
-// Since the service accepts time.Now internally, we instead rely on test board times
-// anchored relative to the real clock. Tests that need deterministic "now" use
-// relative offsets baked into the board's CreatedAt / LastResetAt.
+
 _ = now
 return svc
 }
 
-// ---- ResetDueBoards ----
 
 func TestResetDueBoards_NoBoards(t *testing.T) {
 boardRepo := &mockBoardRepo{}
@@ -62,7 +57,6 @@ t.Error("expected no reset for board without schedule")
 }
 
 func TestResetDueBoards_SkipsWhenNotDue(t *testing.T) {
-// Board created 3 days ago, interval=7 days → not yet due for reset.
 interval := 7 * 24 * 3600
 createdAt := time.Now().Add(-72 * time.Hour)
 board := models.Board{

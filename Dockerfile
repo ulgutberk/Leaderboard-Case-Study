@@ -5,7 +5,6 @@ WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
 
-# Install swag CLI for Swagger doc generation
 RUN go install github.com/swaggo/swag/cmd/swag@v1.8.1
 
 COPY . .

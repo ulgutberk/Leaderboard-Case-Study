@@ -10,7 +10,6 @@ import (
 	"leaderboard-case-study/internal/models"
 )
 
-// BoardRepository handles persistent board metadata in Postgres.
 type BoardRepository interface {
 	CreateBoard(ctx context.Context, board *models.Board) error
 	GetBoard(ctx context.Context, id int) (*models.Board, error)
@@ -24,12 +23,10 @@ type boardRepository struct {
 	db *pgxpool.Pool
 }
 
-// NewBoardRepository creates a new BoardRepository backed by Postgres.
 func NewBoardRepository(db *pgxpool.Pool) BoardRepository {
 	return &boardRepository{db: db}
 }
 
-// scheduleType extracts the schedule type string (nil-safe).
 func scheduleType(s *models.Schedule) *string {
 	if s == nil {
 		return nil
@@ -37,7 +34,6 @@ func scheduleType(s *models.Schedule) *string {
 	return &s.Type
 }
 
-// scheduleInterval extracts the interval seconds (nil-safe).
 func scheduleInterval(s *models.Schedule) *int {
 	if s == nil {
 		return nil
@@ -45,7 +41,6 @@ func scheduleInterval(s *models.Schedule) *int {
 	return s.IntervalSeconds
 }
 
-// buildSchedule reconstructs a Schedule from nullable DB columns.
 func buildSchedule(schedType *string, intervalSecs *int) *models.Schedule {
 	if schedType == nil {
 		return nil
@@ -56,7 +51,6 @@ func buildSchedule(schedType *string, intervalSecs *int) *models.Schedule {
 	}
 }
 
-// CreateBoard inserts a new board record into Postgres.
 func (r *boardRepository) CreateBoard(ctx context.Context, board *models.Board) error {
 	query := `
 		INSERT INTO boards (name, description, schedule_type, schedule_interval_seconds, last_reset_at)
@@ -71,12 +65,10 @@ func (r *boardRepository) CreateBoard(ctx context.Context, board *models.Board) 
 	if err != nil {
 		return err
 	}
-	// Expose the DB integer ID as "board_{id}" string
 	board.BoardID = fmt.Sprintf("board_%d", board.DbID)
 	return nil
 }
 
-// GetBoard fetches a board by its integer primary key.
 func (r *boardRepository) GetBoard(ctx context.Context, id int) (*models.Board, error) {
 	board := &models.Board{}
 	var schedType *string
@@ -94,7 +86,6 @@ func (r *boardRepository) GetBoard(ctx context.Context, id int) (*models.Board, 
 	return board, nil
 }
 
-// ListBoards returns all boards with basic metadata (id + name).
 func (r *boardRepository) ListBoards(ctx context.Context) ([]models.BoardSummary, error) {
 	query := `SELECT id, name FROM boards ORDER BY id`
 	rows, err := r.db.Query(ctx, query)
@@ -115,7 +106,6 @@ func (r *boardRepository) ListBoards(ctx context.Context) ([]models.BoardSummary
 	return boards, rows.Err()
 }
 
-// GetBoardByName fetches a board by its unique name.
 func (r *boardRepository) GetBoardByName(ctx context.Context, name string) (*models.Board, error) {
 	board := &models.Board{}
 	var schedType *string
@@ -133,7 +123,6 @@ func (r *boardRepository) GetBoardByName(ctx context.Context, name string) (*mod
 	return board, nil
 }
 
-// ListScheduledBoards returns boards with an interval-based reset schedule.
 func (r *boardRepository) ListScheduledBoards(ctx context.Context) ([]models.Board, error) {
 	query := `
 		SELECT id, name, description, schedule_type, schedule_interval_seconds, created_at, last_reset_at
@@ -162,7 +151,6 @@ func (r *boardRepository) ListScheduledBoards(ctx context.Context) ([]models.Boa
 	return boards, rows.Err()
 }
 
-// UpdateLastResetAt advances the board's active reset window.
 func (r *boardRepository) UpdateLastResetAt(ctx context.Context, id int, lastResetAt time.Time) error {
 	_, err := r.db.Exec(ctx, `UPDATE boards SET last_reset_at = $2, updated_at = NOW() WHERE id = $1`, id, lastResetAt)
 	return err

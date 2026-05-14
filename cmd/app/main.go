@@ -28,14 +28,11 @@ import (
 )
 
 func main() {
-	// Load configuration from environment variables
 	cfg := configs.Load()
 
-	// Connect to Postgres — retry until ready (container may be up before Postgres accepts connections).
 	db := mustConnectPostgres(cfg.PostgresURL)
 	defer db.Close()
 
-	// Connect to Redis (fast score operations via ZSET)
 	var redisClient *redis.Client
 	if len(cfg.RedisSentinelAddrs) > 0 {
 		redisClient = redis.NewFailoverClient(&redis.FailoverOptions{
@@ -52,14 +49,6 @@ func main() {
 	}
 	defer redisClient.Close()
 
-	// Wire up layers:
-	//   Repository → Service → Handler
-	//
-	//   Client → Handler → Service
-	//                        ├── BoardRepository  (Postgres)
-	//                        ├── ScoreRepository  (Redis ZSET)
-	//                        └── UserRepository   (Postgres)
-
 	boardRepo := repositories.NewBoardRepository(db)
 	scoreRepo := repositories.NewScoreRepository(db, redisClient)
 	userRepo := repositories.NewUserRepository(db)
@@ -68,7 +57,6 @@ func main() {
 	scoreService := services.NewScoreService(scoreRepo, boardRepo)
 	userService := services.NewUserService(userRepo)
 
-	// Rebuild Redis cache from Postgres on startup (crash recovery / cold start).
 	if err := scoreRepo.WarmCache(context.Background()); err != nil {
 		log.Printf("warn: Redis cache warm failed (scores may be missing until next SetScore): %v", err)
 	} else {
@@ -80,7 +68,6 @@ func main() {
 	scoreHandler := handlers.NewScoreHandler(scoreService, boardService, userService)
 	userHandler := handlers.NewUserHandler(userService)
 
-	// Register routes
 	router := mux.NewRouter()
 	router.HandleFunc("/health", healthHandler(db, redisClient)).Methods(http.MethodGet)
 	router.PathPrefix("/swagger/").Handler(httpSwagger.WrapHandler)
@@ -94,8 +81,6 @@ func main() {
 
 }
 
-// mustConnectPostgres retries connecting to Postgres until it succeeds or times out.
-// pgxpool.New is lazy (no real connection yet), so we Ping explicitly.
 func mustConnectPostgres(url string) *pgxpool.Pool {
 	const maxAttempts = 20
 	const delay = 3 * time.Second

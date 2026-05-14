@@ -28,7 +28,6 @@ SetScore(ctx context.Context, boardID int, userID string, score float64) error
 GetTopScores(ctx context.Context, boardID int, limit int64) ([]models.ScoreEntry, error)
 GetSurroundings(ctx context.Context, boardID int, userID string, n int64) (*models.SurroundingsResponse, error)
 ResetScores(ctx context.Context, boardID int) error
-// WarmCache rebuilds Redis from Postgres. Call once at startup.
 WarmCache(ctx context.Context) error
 }
 
@@ -37,7 +36,6 @@ db    *pgxpool.Pool
 redis *redis.Client
 }
 
-// NewScoreRepository creates a ScoreRepository backed by Postgres (persistence) and Redis (cache).
 func NewScoreRepository(db *pgxpool.Pool, redis *redis.Client) ScoreRepository {
 return &scoreRepository{db: db, redis: redis}
 }
@@ -50,10 +48,7 @@ func (r *scoreRepository) tsKey(boardID int) string {
 return fmt.Sprintf("leaderboard:board:%d:ts", boardID)
 }
 
-// SetScore upserts the score in Postgres then mirrors to Redis.
-// Postgres created_at (first submission time) is used as tie-breaking timestamp.
 func (r *scoreRepository) SetScore(ctx context.Context, boardID int, userID string, score float64) error {
-// 1. Postgres UPSERT — preserves created_at on subsequent updates.
 var tsNano int64
 err := r.db.QueryRow(ctx, `
 INSERT INTO scores (board_id, user_id, score, created_at, updated_at)
@@ -67,7 +62,6 @@ if err != nil {
 return fmt.Errorf("postgres upsert score: %w", err)
 }
 
-// 2. Mirror to Redis — atomic pipeline.
 pipe := r.redis.Pipeline()
 pipe.ZAdd(ctx, r.zsetKey(boardID), &redis.Z{Score: score, Member: userID})
 pipe.HSet(ctx, r.tsKey(boardID), userID, tsNano)
@@ -77,14 +71,12 @@ return fmt.Errorf("redis mirror score: %w", err)
 return nil
 }
 
-// scoredEntry is used for in-process tie-breaking sort.
 type scoredEntry struct {
 UserID string
 Score  float64
-Ts     int64 // unix nano; smaller = earlier = higher rank on tie
+Ts     int64 
 }
 
-// fetchTimestamps retrieves submission timestamps via HMGET.
 func (r *scoreRepository) fetchTimestamps(ctx context.Context, boardID int, userIDs []string) (map[string]int64, error) {
 if len(userIDs) == 0 {
 return map[string]int64{}, nil
@@ -103,7 +95,6 @@ ts[userIDs[i]] = n
 return ts, nil
 }
 
-// sortEntries sorts by score desc; ties by timestamp asc (earlier = higher rank).
 func sortEntries(entries []scoredEntry) {
 sort.SliceStable(entries, func(i, j int) bool {
 if entries[i].Score != entries[j].Score {
@@ -220,7 +211,6 @@ Below: below,
 }, nil
 }
 
-// ResetScores deletes all scores for a board from both Postgres and Redis.
 func (r *scoreRepository) ResetScores(ctx context.Context, boardID int) error {
 if _, err := r.db.Exec(ctx, `DELETE FROM scores WHERE board_id = $1`, boardID); err != nil {
 return fmt.Errorf("postgres delete scores: %w", err)
@@ -234,8 +224,6 @@ return fmt.Errorf("redis delete scores: %w", err)
 return nil
 }
 
-// WarmCache rebuilds Redis ZSET and timestamp HASH for all boards from Postgres.
-// Called once at startup to recover from a Redis crash or cold start.
 func (r *scoreRepository) WarmCache(ctx context.Context) error {
 rows, err := r.db.Query(ctx, `
 SELECT board_id, user_id, score,

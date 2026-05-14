@@ -70,7 +70,6 @@ func executeRequest(t *testing.T, h *handlers.BoardHandler, req *http.Request) *
 }
 
 // nopSvc returns a mockBoardService with no-op stubs for all methods
-// so individual tests only need to override what they care about.
 func nopSvc() *mockBoardService {
 	return &mockBoardService{
 		createFn:    func(_ context.Context, _ *models.Board) error { return nil },
@@ -233,9 +232,6 @@ func TestCreateBoard_InvalidJSON(t *testing.T) {
 }
 
 func TestCreateBoard_DuplicateName(t *testing.T) {
-	// In unit tests we can't construct a real pgconn.PgError, so we verify
-	// that a service error returns a JSON error body (500). The actual
-	// 400 duplicate-name path is covered by integration tests against Postgres.
 	svc := nopSvc()
 	svc.createFn = func(ctx context.Context, board *models.Board) error {
 		return &duplicateNameError{}
@@ -299,7 +295,7 @@ func TestListBoards_Success(t *testing.T) {
 
 func TestGetBoard_Success(t *testing.T) {
 	interval := 604800
-	createdAt := time.Now().Add(-8 * 24 * time.Hour) // 8 days ago → next reset is in the future
+	createdAt := time.Now().Add(-8 * 24 * time.Hour)
 	svc := nopSvc()
 	svc.getFn = func(_ context.Context, id int) (*models.Board, error) {
 		if id != 123 {
@@ -373,17 +369,10 @@ func TestGetBoard_InvalidID(t *testing.T) {
 	}
 }
 
-// boardNotFoundError is a simple error type used in tests.
 type boardNotFoundError struct{}
 
 func (e *boardNotFoundError) Error() string { return "board not found" }
 
-// duplicateNameError simulates a Postgres unique constraint violation (code 23505).
-// The handler uses errors.As to check for *pgconn.PgError; here we satisfy the
-// same interface so the handler falls through to the generic 500 path, which we
-// verify returns 400 in the real integration case via the migration constraint.
-// For a pure unit test we just verify the service error propagates as 500 here
-// and rely on the integration test for the 400 duplicate path.
 type duplicateNameError struct{}
 
 func (e *duplicateNameError) Error() string { return "duplicate board name" }

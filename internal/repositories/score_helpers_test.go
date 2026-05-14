@@ -24,7 +24,6 @@ entries := []scoredEntry{
 {UserID: "mid", Score: 500, Ts: 2000},
 }
 sortEntries(entries)
-// Earlier Ts = higher rank on equal scores.
 want := []string{"early", "mid", "late"}
 for i, e := range entries {
 if e.UserID != want[i] {
@@ -40,7 +39,6 @@ entries := []scoredEntry{
 {UserID: "z", Score: 300, Ts: 200},
 }
 sortEntries(entries)
-// y and z both 300; y earlier (Ts=100) → rank 0; then z (Ts=200) → rank 1; then x (score 200) → rank 2.
 want := []string{"y", "z", "x"}
 for i, e := range entries {
 if e.UserID != want[i] {
@@ -59,7 +57,7 @@ t.Errorf("unexpected result: %+v", entries)
 
 func TestSortEntries_Empty(t *testing.T) {
 entries := []scoredEntry{}
-sortEntries(entries) // must not panic
+sortEntries(entries)
 if len(entries) != 0 {
 t.Errorf("expected empty slice, got %+v", entries)
 }

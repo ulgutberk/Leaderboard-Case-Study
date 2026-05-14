@@ -10,17 +10,14 @@ import (
 	"leaderboard-case-study/internal/services"
 )
 
-// UserHandler handles HTTP requests for user operations.
 type UserHandler struct {
 	service services.UserService
 }
 
-// NewUserHandler creates a new UserHandler.
 func NewUserHandler(service services.UserService) *UserHandler {
 	return &UserHandler{service: service}
 }
 
-// RegisterRoutes registers all user-related routes on the given router.
 func (h *UserHandler) RegisterRoutes(router *mux.Router) {
 	router.HandleFunc("/users", h.CreateUser).Methods(http.MethodPost)
 	router.HandleFunc("/users/{id}", h.GetUser).Methods(http.MethodGet)

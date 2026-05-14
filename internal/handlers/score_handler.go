@@ -17,7 +17,6 @@ import (
 	"leaderboard-case-study/internal/services"
 )
 
-// ScoreHandler handles HTTP requests for score operations.
 type ScoreHandler struct {
 	service      services.ScoreService
 	boardService services.BoardService
@@ -25,8 +24,6 @@ type ScoreHandler struct {
 	randSource   *rand.Rand
 }
 
-// NewScoreHandler creates a new ScoreHandler.
-// boardService is used to verify board existence before score operations.
 func NewScoreHandler(service services.ScoreService, boardService services.BoardService, userService services.UserService) *ScoreHandler {
 	return &ScoreHandler{
 		service:      service,
@@ -36,7 +33,6 @@ func NewScoreHandler(service services.ScoreService, boardService services.BoardS
 	}
 }
 
-// RegisterRoutes registers score-related routes on the given router.
 func (h *ScoreHandler) RegisterRoutes(router *mux.Router) {
 	router.HandleFunc("/boards/{boardId}/scores", h.SetScore).Methods(http.MethodPost)
 	router.HandleFunc("/boards/{boardId}/scores", h.GetTopScores).Methods(http.MethodGet)
@@ -45,7 +41,6 @@ func (h *ScoreHandler) RegisterRoutes(router *mux.Router) {
 	router.HandleFunc("/boards/{boardId}/reset", h.ResetScores).Methods(http.MethodPost)
 }
 
-// parseBoardID parses "board_123" or "123" from the {boardId} path variable.
 func (h *ScoreHandler) parseBoardID(r *http.Request) (id int, boardIDStr string, err error) {
 	raw := mux.Vars(r)["boardId"]
 	trimmed := strings.TrimPrefix(raw, "board_")
@@ -56,7 +51,6 @@ func (h *ScoreHandler) parseBoardID(r *http.Request) (id int, boardIDStr string,
 	return id, fmt.Sprintf("board_%d", id), nil
 }
 
-// requireBoard checks that the board exists; writes 404 and returns false if not.
 func (h *ScoreHandler) requireBoard(w http.ResponseWriter, r *http.Request, boardID int) bool {
 	if _, err := h.boardService.GetBoard(r.Context(), boardID); err != nil {
 		jsonError(w, "Board not found", http.StatusNotFound)

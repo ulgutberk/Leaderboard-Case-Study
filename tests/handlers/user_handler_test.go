@@ -15,7 +15,6 @@ import (
 "leaderboard-case-study/internal/models"
 )
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
 
 func newUserHandler(svc *mockUserService) *handlers.UserHandler {
 return handlers.NewUserHandler(svc)
@@ -30,7 +29,6 @@ router.ServeHTTP(rr, req)
 return rr
 }
 
-// ── CreateUser ────────────────────────────────────────────────────────────────
 
 func TestCreateUser_Success(t *testing.T) {
 svc := &mockUserService{
@@ -102,7 +100,6 @@ t.Fatalf("expected 500, got %d — body: %s", rr.Code, rr.Body.String())
 }
 }
 
-// ── GetUser ───────────────────────────────────────────────────────────────────
 
 func TestGetUser_Success(t *testing.T) {
 svc := &mockUserService{
